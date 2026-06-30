@@ -1,0 +1,51 @@
+import "./style.css";
+
+const app = document.querySelector<HTMLDivElement>("#app")!;
+app.innerHTML = `
+<main>
+<header><p class="eyebrow">PAPER STORAGE EXPERIMENT</p><h1>PaperVault <span>α</span></h1><p class="lead">ファイルを白黒セルへ変換し、紙から復元する実験用Webアプリ。</p></header>
+<section class="notice"><strong>α版の制約</strong><span>原寸・正対・余白を切らないスキャン向け。台形補正と本格的な誤り訂正は次版。</span></section>
+<nav class="tabs"><button class="tab active" data-tab="encode">保存する</button><button class="tab" data-tab="decode">復元する</button><button class="tab" data-tab="calibrate">印刷テスト</button></nav>
+<section id="encode" class="panel active"><h2>ファイルを紙面化</h2><label class="drop"><input id="fileInput" type="file"><span>ファイルを選択</span><small>処理はブラウザ内だけで行われます</small></label><div class="controls"><label>セルサイズ<select id="cellSize"><option value="12">Safe（約1.0 mm）</option><option value="10" selected>Normal（約0.85 mm）</option><option value="8">Dense（約0.68 mm）</option><option value="6">Experimental（約0.51 mm）</option></select></label><label>反復回数<select id="repeat"><option value="1">1×</option><option value="3" selected>3×</option><option value="5">5×</option></select></label></div><button id="encodeBtn" class="primary" disabled>ページを生成</button><div id="encodeStatus" class="status"></div><div id="pages" class="pages"></div></section>
+<section id="decode" class="panel"><h2>画像から復元</h2><label class="drop"><input id="scanInput" type="file" accept="image/png,image/jpeg,image/webp" multiple><span>スキャン画像を選択</span><small>複数ページをまとめて選択可能</small></label><button id="decodeBtn" class="primary" disabled>復元を開始</button><div id="decodeStatus" class="status"></div></section>
+<section id="calibrate" class="panel"><h2>ローソン印刷テスト</h2><p>異なるセル幅を1枚に配置し、どの密度まで読み取れるか確認します。</p><button id="calibrateBtn" class="primary">テストシート生成</button><div id="calibrateStatus" class="status"></div><div id="calibration"></div></section>
+<footer>PaperVault v0.1.0-alpha.1 · local-first</footer>
+</main>`;
+
+const W=2480,H=3508,MARGIN=120,HEADER_BYTES=32,MARK=90;
+const MAGIC=new TextEncoder().encode("PVLT");
+const $=<T extends HTMLElement>(s:string)=>document.querySelector<T>(s)!;
+
+document.querySelectorAll<HTMLButtonElement>(".tab").forEach(t=>t.onclick=()=>{
+ document.querySelectorAll(".tab").forEach(x=>x.classList.toggle("active",x===t));
+ document.querySelectorAll(".panel").forEach(p=>p.classList.toggle("active",p.id===t.dataset.tab));
+});
+
+const fileInput=$("#fileInput") as HTMLInputElement;
+const scanInput=$("#scanInput") as HTMLInputElement;
+const encodeBtn=$("#encodeBtn") as HTMLButtonElement;
+const decodeBtn=$("#decodeBtn") as HTMLButtonElement;
+fileInput.onchange=()=>encodeBtn.disabled=!fileInput.files?.length;
+scanInput.onchange=()=>decodeBtn.disabled=!scanInput.files?.length;
+
+function crc32(bytes:Uint8Array){let c=0xffffffff;for(const b of bytes){c^=b;for(let k=0;k<8;k++)c=(c>>>1)^(0xedb88320&-(c&1));}return(c^0xffffffff)>>>0;}
+function u32(out:Uint8Array,at:number,value:number){new DataView(out.buffer).setUint32(at,value>>>0,false);}
+function r32(bytes:Uint8Array,at:number){return new DataView(bytes.buffer,bytes.byteOffset,bytes.byteLength).getUint32(at,false);}
+function concat(...parts:Uint8Array[]){const out=new Uint8Array(parts.reduce((n,p)=>n+p.length,0));let at=0;for(const p of parts){out.set(p,at);at+=p.length;}return out;}
+function repeatBits(bytes:Uint8Array,repeat:number){const bits=new Uint8Array(bytes.length*8*repeat);let at=0;for(const b of bytes)for(let bit=7;bit>=0;bit--){const v=(b>>bit)&1;for(let r=0;r<repeat;r++)bits[at++]=v;}return bits;}
+function majorityBytes(bits:Uint8Array,repeat:number,byteCount:number){const out=new Uint8Array(byteCount);let at=0;for(let i=0;i<byteCount;i++)for(let bit=7;bit>=0;bit--){let ones=0;for(let r=0;r<repeat;r++)ones+=bits[at++]||0;out[i]|=(ones>repeat/2?1:0)<<bit;}return out;}
+function marker(ctx:CanvasRenderingContext2D,x:number,y:number,size:number){ctx.fillStyle="#000";ctx.fillRect(x,y,size,size);ctx.fillStyle="#fff";ctx.fillRect(x+size*.2,y+size*.2,size*.6,size*.6);ctx.fillStyle="#000";ctx.fillRect(x+size*.38,y+size*.38,size*.24,size*.24);}
+function pageCapacity(cell:number,repeat:number){const cols=Math.floor((W-2*MARGIN)/cell),rows=Math.floor((H-2*MARGIN-100)/cell);return Math.floor(cols*rows/(8*repeat))-HEADER_BYTES;}
+function makeHeader(fileId:number,page:number,total:number,totalBytes:number,payload:Uint8Array,cell:number,repeat:number){const h=new Uint8Array(HEADER_BYTES);h.set(MAGIC,0);u32(h,4,fileId);u32(h,8,page);u32(h,12,total);u32(h,16,totalBytes);u32(h,20,payload.length);u32(h,24,crc32(payload));h[28]=cell;h[29]=repeat;h[30]=0x55;h[31]=0xaa;return h;}
+function drawPage(packet:Uint8Array,cell:number,repeat:number,label:string){const canvas=document.createElement("canvas");canvas.width=W;canvas.height=H;const ctx=canvas.getContext("2d",{alpha:false})!;ctx.fillStyle="#fff";ctx.fillRect(0,0,W,H);marker(ctx,20,20,MARK);marker(ctx,W-20-MARK,20,MARK);marker(ctx,20,H-20-MARK,MARK);marker(ctx,W-20-MARK,H-20-MARK,MARK);ctx.fillStyle="#000";ctx.font="bold 34px sans-serif";ctx.fillText("PaperVault α",MARGIN,92);ctx.font="24px monospace";ctx.fillText(label,MARGIN,126);const bits=repeatBits(packet,repeat),cols=Math.floor((W-2*MARGIN)/cell);let i=0,y=MARGIN+100;ctx.fillStyle="#000";while(i<bits.length&&y+cell<=H-MARGIN){for(let x=MARGIN;x+cell<=W-MARGIN&&i<bits.length;x+=cell,i++)if(bits[i])ctx.fillRect(x,y,cell,cell);y+=cell;}void cols;return canvas;}
+function downloadCanvas(canvas:HTMLCanvasElement,name:string){canvas.toBlob(blob=>{if(!blob)return;const a=document.createElement("a");a.href=URL.createObjectURL(blob);a.download=name;a.click();setTimeout(()=>URL.revokeObjectURL(a.href),2000);},"image/png");}
+function cardFor(canvas:HTMLCanvasElement,name:string){const card=document.createElement("article");card.className="page-card";const actions=document.createElement("div");actions.className="actions";const dl=document.createElement("button");dl.textContent="PNGを保存";dl.onclick=()=>downloadCanvas(canvas,name);const pr=document.createElement("button");pr.textContent="このページを印刷";pr.onclick=()=>{document.querySelectorAll(".print-target").forEach(x=>x.classList.remove("print-target"));card.classList.add("print-target");window.print();};actions.append(dl,pr);card.append(canvas,actions);return card;}
+
+encodeBtn.onclick=async()=>{const file=fileInput.files![0],cell=Number(($("#cellSize")as HTMLSelectElement).value),repeat=Number(($("#repeat")as HTMLSelectElement).value),status=$("#encodeStatus"),pages=$("#pages");pages.innerHTML="";const raw=new Uint8Array(await file.arrayBuffer()),cap=pageCapacity(cell,repeat);const total=Math.ceil(raw.length/cap),fileId=crypto.getRandomValues(new Uint32Array(1))[0];status.textContent=`${file.name}\n${raw.length.toLocaleString()} bytes → ${total}ページ（約${cap.toLocaleString()} bytes/ページ）`;for(let p=0;p<total;p++){const payload=raw.slice(p*cap,Math.min(raw.length,(p+1)*cap)),packet=concat(makeHeader(fileId,p,total,raw.length,payload,cell,repeat),payload),canvas=drawPage(packet,cell,repeat,`${file.name} PAGE ${p+1}/${total}`);pages.append(cardFor(canvas,`papervault-${String(p+1).padStart(4,"0")}.png`));await new Promise(r=>setTimeout(r,0));}};
+
+async function imageFromFile(file:File){const bmp=await createImageBitmap(file),c=document.createElement("canvas");c.width=W;c.height=H;const ctx=c.getContext("2d",{alpha:false})!;ctx.fillStyle="#fff";ctx.fillRect(0,0,W,H);ctx.drawImage(bmp,0,0,W,H);bmp.close();return c;}
+function readPacket(canvas:HTMLCanvasElement){const ctx=canvas.getContext("2d")!;for(const cell of [12,10,8,6])for(const repeat of [1,3,5]){const byteCap=pageCapacity(cell,repeat)+HEADER_BYTES,neededBits=byteCap*8*repeat,bits=new Uint8Array(neededBits);let i=0,y=MARGIN+100;while(i<neededBits&&y+cell<=H-MARGIN){for(let x=MARGIN;x+cell<=W-MARGIN&&i<neededBits;x+=cell,i++){const d=ctx.getImageData(Math.floor(x+cell/2),Math.floor(y+cell/2),1,1).data;bits[i]=(d[0]+d[1]+d[2])/3<128?1:0;}y+=cell;}const bytes=majorityBytes(bits,repeat,byteCap);if(bytes.slice(0,4).every((v,k)=>v===MAGIC[k])&&bytes[28]===cell&&bytes[29]===repeat)return bytes;}throw new Error("PaperVaultヘッダーを検出できません。余白・向き・原寸を確認してください。");}
+
+decodeBtn.onclick=async()=>{const status=$("#decodeStatus");status.textContent="読み取り中…";try{const found=new Map<number,Uint8Array>();let total=0,totalBytes=0,fileId:number|undefined;for(const f of Array.from(scanInput.files!)){const bytes=readPacket(await imageFromFile(f)),id=r32(bytes,4),page=r32(bytes,8);total=r32(bytes,12);totalBytes=r32(bytes,16);const len=r32(bytes,20),expected=r32(bytes,24),payload=bytes.slice(HEADER_BYTES,HEADER_BYTES+len);if(crc32(payload)!==expected)throw new Error(`${f.name}: CRC不一致`);if(fileId!==undefined&&fileId!==id)throw new Error("異なるファイルのページが混ざっています");fileId=id;found.set(page,payload);}if(found.size!==total)throw new Error(`ページ不足: ${found.size}/${total}`);const ordered:Uint8Array[]=[];for(let i=0;i<total;i++){const p=found.get(i);if(!p)throw new Error(`ページ${i+1}がありません`);ordered.push(p);}const restored=concat(...ordered).slice(0,totalBytes),a=document.createElement("a");a.href=URL.createObjectURL(new Blob([restored]));a.download="restored.bin";a.click();status.textContent=`復元成功: ${restored.length.toLocaleString()} bytes`;}catch(e){status.textContent=`復元失敗: ${e instanceof Error?e.message:String(e)}`;}};
+
+$("#calibrateBtn").onclick=()=>{const holder=$("#calibration");holder.innerHTML="";const c=document.createElement("canvas");c.width=W;c.height=H;const ctx=c.getContext("2d",{alpha:false})!;ctx.fillStyle="#fff";ctx.fillRect(0,0,W,H);marker(ctx,20,20,MARK);marker(ctx,W-110,20,MARK);marker(ctx,20,H-110,MARK);marker(ctx,W-110,H-110,MARK);ctx.fillStyle="#000";ctx.font="bold 48px sans-serif";ctx.fillText("PaperVault / Lawson calibration",130,105);let y=190;for(const cell of [16,14,12,10,8,6,5,4]){ctx.font="bold 30px sans-serif";ctx.fillText(`${cell}px @300dpi ≈ ${(cell/300*25.4).toFixed(2)} mm`,130,y);y+=22;const cols=Math.floor((W-260)/cell),rows=Math.floor(245/cell);let seed=cell*9973;const rnd=()=>((seed=(seed*1664525+1013904223)>>>0)&1);for(let r=0;r<rows;r++)for(let col=0;col<cols;col++)if(rnd())ctx.fillRect(130+col*cell,y+r*cell,cell,cell);y+=rows*cell+58;}holder.append(cardFor(c,"papervault-lawson-calibration.png"));$("#calibrateStatus").textContent="A4・100%・片面・白黒で印刷し、余白を切らずにスキャンしてください。";};
