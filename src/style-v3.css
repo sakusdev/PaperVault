@@ -9,9 +9,7 @@ body { margin: 0; }
 main { width: min(1024px, calc(100% - 28px)); margin: 0 auto; padding: 48px 0 80px; }
 header { border-top: 8px solid #111; padding: 28px 0 24px; }
 .brand-row { display: grid; grid-template-columns: 104px 1fr; gap: 20px; align-items: start; }
-.pv-logo { width: 96px; height: 96px; position: relative; background: #111; border-radius: 14px; box-shadow: inset 0 0 0 18px #fff; }
-.pv-logo::before { content: ""; position: absolute; inset: 26px; background: #111; transform: rotate(45deg); border-radius: 6px; }
-.pv-logo::after { content: ""; position: absolute; left: 46px; top: 27px; width: 8px; height: 42px; background: #fff; box-shadow: -8px 10px 0 0 #fff; border-radius: 4px; }
+.pv-logo { width: 96px; height: 96px; display: block; object-fit: contain; }
 .logo-note { display: inline-block; margin-top: 6px; font-size: 12px; font-weight: 700; letter-spacing: .04em; }
 .eyebrow { letter-spacing: .16em; font-size: 12px; font-weight: 800; margin: 0; }
 h1 { font-size: clamp(48px, 10vw, 104px); line-height: .92; letter-spacing: -.07em; margin: 12px 0; }
@@ -30,7 +28,7 @@ h2 { font-size: 30px; letter-spacing: -.04em; }
 .drop small { color: #555; }
 .controls { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; margin: 18px 0; }
 .controls label { display: grid; gap: 8px; font-weight: 800; }
-select { padding: 12px; border: 2px solid #111; background: #fff; font: inherit; }
+select, input[readonly] { padding: 12px; border: 2px solid #111; background: #fff; font: inherit; }
 .primary { margin-top: 18px; padding: 14px 22px; border: 2px solid #111; background: #111; color: #fff; font-weight: 850; cursor: pointer; }
 .primary:disabled { opacity: .35; cursor: not-allowed; }
 .status { margin: 18px 0; white-space: pre-wrap; }
@@ -41,5 +39,6 @@ select { padding: 12px; border: 2px solid #111; background: #fff; font: inherit;
 .actions { display: flex; flex-wrap: wrap; gap: 8px; justify-content: center; margin-top: 12px; }
 .actions button { padding: 10px 14px; border: 2px solid #111; color: #111; background: #fff; font-weight: 800; cursor: pointer; }
 footer { border-top: 2px solid #111; margin-top: 48px; padding-top: 18px; font-size: 13px; }
+footer a { color: inherit; font-weight: 800; }
 @media (max-width: 720px) { .brand-row, .notice, .controls { grid-template-columns: 1fr; } .pv-logo { width: 80px; height: 80px; } .tab { flex: 1; padding-inline: 8px; } }
 @media print { body * { visibility: hidden !important; } .print-target, .print-target * { visibility: visible !important; } .print-target { position: fixed; inset: 0; margin: 0 !important; padding: 0 !important; border: 0 !important; } .print-target canvas { width: 210mm !important; height: 297mm !important; border: 0 !important; } .print-target .actions { display: none !important; } @page { size: A4 portrait; margin: 0; } }
